@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Delivery Map Mobile App</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -14,18 +14,19 @@
 
   <style>
     html, body { margin:0; padding:0; height:100%; }
-    body { overflow:hidden; font-family: system-ui, sans-serif; background:#f5f6f8; }
+    body { overflow:hidden; font-family: system-ui, sans-serif; background:#f5f6f8; position:fixed; width:100%; height:100%; }
     #map { height:100vh; width:100vw; position:fixed; inset:0; z-index:1; }
 
     .ui-layer {
       position: fixed;
-      right:16px;
-      bottom: calc(16px + env(safe-area-inset-bottom));
+      right: max(16px, env(safe-area-inset-right));
+      bottom: max(16px, env(safe-area-inset-bottom));
       display:flex;
       flex-direction:column;
       gap:12px;
       z-index:3000;
       pointer-events:auto;
+      transform: translateZ(0);
     }
 
     .ui-layer button {
@@ -214,7 +215,12 @@ btnTrash.onclick = async () => {
     const [restoreBtn, delBtn] = d.querySelectorAll('button');
     restoreBtn.onclick = async () => {
       await db.locations.update(it.id,{deleted:0});
-      if(markers[it.id]) markers[it.id].addTo(map);
+      // FIX: luôn tạo lại marker nếu đã bị remove trước đó
+      if(!markers[it.id]){
+        markers[it.id] = L.marker([it.lat,it.lng]).addTo(map);
+      } else if(!map.hasLayer(markers[it.id])){
+        markers[it.id].addTo(map);
+      }
       btnTrash.onclick();
     };
     delBtn.onclick = async () => { await db.locations.delete(it.id); btnTrash.onclick(); };
@@ -273,6 +279,17 @@ btnLocate.onclick = () => navigator.geolocation?.getCurrentPosition(p=>map.flyTo
 
 console.assert(map,'map ok');
 console.assert(db.locations,'db ok');
+
+/******** RESTORE MARKERS ON LOAD (FIX RELOAD / GITHUB BUG) ********/
+(async function restoreOnLoad(){
+  const items = await db.locations.where('deleted').equals(0).toArray();
+  items.forEach(it=>{
+    if(!markers[it.id]){
+      markers[it.id] = L.marker([it.lat,it.lng]).addTo(map);
+    }
+  });
+  setTimeout(()=>map.invalidateSize(),300);
+})();
 </script>
 </body>
 </html>
