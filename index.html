@@ -90,6 +90,7 @@
     .route-info button{margin-top:8px;width:100%;padding:10px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:15px;}
 
     .marker-highlight{filter:drop-shadow(0 0 6px #2563eb);} 
+  .marker-label{background:rgba(255,255,255,0.9);border-radius:6px;padding:4px 6px;font-size:12px;color:#111;border:1px solid #ddd;box-shadow:0 2px 6px rgba(0,0,0,.2);white-space:pre;}
   </style>
 </head>
 <body>
@@ -178,6 +179,14 @@ btnSave.onclick = async () => {
     deleted: 0
   });
   markers[id] = L.marker([tempLatLng.lat, tempLatLng.lng]).addTo(map);
+  // show name + phone above marker
+  markers[id].bindTooltip(`${inputName.value}
+${inputPhone.value}`, {
+    permanent: true,
+    direction: 'top',
+    offset: [0, -10],
+    className: 'marker-label'
+  });
   inputName.value = '';
   inputPhone.value = '';
   saveSheet.classList.add('hidden');
@@ -228,6 +237,20 @@ btnTrash.onclick = async () => {
       await db.locations.update(it.id,{deleted:0});
       if(!markers[it.id]){
         markers[it.id] = L.marker([it.lat,it.lng]).addTo(map);
+      markers[it.id].bindTooltip(`${it.name}
+${it.phone}`, {
+        permanent: true,
+        direction: 'top',
+        offset: [0, -10],
+        className: 'marker-label'
+      });
+        markers[it.id].bindTooltip(`${it.name}
+${it.phone}`, {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -10],
+          className: 'marker-label'
+        });
       }
       btnTrash.onclick();
     };
@@ -351,6 +374,13 @@ btnLocate.onclick = () => navigator.geolocation?.getCurrentPosition(p=>map.flyTo
   items.forEach(it=>{
     if(!markers[it.id]){
       markers[it.id] = L.marker([it.lat,it.lng]).addTo(map);
+        markers[it.id].bindTooltip(`${it.name}
+${it.phone}`, {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -10],
+          className: 'marker-label'
+        });
     }
   });
   setTimeout(()=>map.invalidateSize(),300);
