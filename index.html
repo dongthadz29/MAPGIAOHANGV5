@@ -25,8 +25,6 @@
       flex-direction:column;
       gap:12px;
       z-index:3000;
-      pointer-events:auto;
-      transform: translateZ(0);
     }
 
     .ui-layer button {
@@ -77,10 +75,22 @@
     .user-icon{position:relative;}
     .user-dot{width:14px;height:14px;background:#2563eb;border-radius:50%;position:absolute;top:13px;left:13px;border:3px solid #fff;}
     .user-arrow{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:14px solid #2563eb;position:absolute;top:-2px;left:14px;transform-origin:50% 18px;}
-    .route-info{position:fixed;left:12px;right:12px;bottom:calc(90px + env(safe-area-inset-bottom));background:#fff;border-radius:12px;padding:12px;box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:2600;font-size:14px;}
+
+    .route-info{
+      position:fixed;
+      left:12px;right:12px;
+      bottom:calc(90px + env(safe-area-inset-bottom));
+      background:#fff;
+      border-radius:12px;
+      padding:12px;
+      box-shadow:0 4px 12px rgba(0,0,0,.25);
+      z-index:2600;
+      font-size:14px;
+    }
     .route-info button{margin-top:8px;width:100%;padding:10px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:15px;}
+
     .marker-highlight{filter:drop-shadow(0 0 6px #2563eb);} 
-</style>
+  </style>
 </head>
 <body>
 
@@ -118,11 +128,8 @@
 const map = L.map('map').setView([10.762622,106.660172],15);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ maxZoom:19 }).addTo(map);
 
-/******** DB (FIX VERSION >= EXISTING) ********/
+/******** DB ********/
 const db = new Dexie('shipperDB');
-// IMPORTANT: version MUST be >= existing IndexedDB version to avoid VersionError
-// User DB already at version 200, so we keep it stable here
-
 db.version(200).stores({ locations:'++id,name,phone,lat,lng,deleted' });
 
 /******** DOM ********/
@@ -196,7 +203,11 @@ btnList.onclick = async () => {
       map.flyTo([it.lat,it.lng],18);
       if(userMarker){ updateSnapRoute(userMarker.getLatLng()); }
     };
-    delBtn.onclick = async () => { await db.locations.update(it.id,{deleted:1}); markers[it.id]?.remove(); delete markers[it.id]; btnList.onclick(); };
+    delBtn.onclick = async () => { 
+      await db.locations.update(it.id,{deleted:1}); 
+      if(markers[it.id]){ markers[it.id].remove(); delete markers[it.id]; }
+      btnList.onclick(); 
+    };
     listSheet.appendChild(d);
   }
   listSheet.classList.remove('hidden');
@@ -215,11 +226,8 @@ btnTrash.onclick = async () => {
     const [restoreBtn, delBtn] = d.querySelectorAll('button');
     restoreBtn.onclick = async () => {
       await db.locations.update(it.id,{deleted:0});
-      // FIX: luôn tạo lại marker nếu đã bị remove trước đó
       if(!markers[it.id]){
         markers[it.id] = L.marker([it.lat,it.lng]).addTo(map);
-      } else if(!map.hasLayer(markers[it.id])){
-        markers[it.id].addTo(map);
       }
       btnTrash.onclick();
     };
@@ -236,28 +244,37 @@ searchInput.oninput = async () => {
   if (q.length < 2) return;
   const results = await db.locations.filter(i => !i.deleted && (i.name.toLowerCase().includes(q) || i.phone.replace(/\D/g,'')===q.replace(/\D/g,''))).toArray();
   if (!results.length) return;
-  if (results[0].id === lastSearchId) return;
-  clearRoute(); lastSearchId = results[0].id; highlightMarker(lastSearchId);
+  lastSearchId = results[0].id;
+  clearRoute();
+  highlightMarker(lastSearchId);
   map.flyTo([results[0].lat, results[0].lng], 18);
 };
 
 /******** EXPORT / IMPORT ********/
 btnExport.onclick = async () => {
   const blob = new Blob([JSON.stringify(await db.locations.toArray(), null, 2)], { type:'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'shipper-data.json'; a.click();
+  const a = document.createElement('a'); 
+  a.href = URL.createObjectURL(blob); 
+  a.download = 'shipper-data.json'; 
+  a.click();
 };
 
 btnImport.onclick = () => {
   const input = document.createElement('input'); input.type='file'; input.accept='application/json';
   input.onchange = async e => {
     const data = JSON.parse(await e.target.files[0].text());
-    await db.locations.clear(); Object.values(markers).forEach(m=>m.remove()); markers={};
-    for (const it of data) { const id = await db.locations.add(it); if (!it.deleted) markers[id]=L.marker([it.lat,it.lng]).addTo(map); }
+    await db.locations.clear(); 
+    Object.values(markers).forEach(m=>m.remove()); 
+    markers={};
+    for (const it of data) { 
+      const id = await db.locations.add(it); 
+      if (!it.deleted) markers[id]=L.marker([it.lat,it.lng]).addTo(map); 
+    }
   };
   input.click();
 };
 
-/******** USER LOCATION + SNAP ROUTE ********/
+/******** USER LOCATION + ROUTE ********/
 let userMarker=null, routeLine=null, lastPos=null;
 const userIcon = L.divIcon({ className:'user-icon', html:'<div class="user-dot"></div><div class="user-arrow"></div>', iconSize:[40,40], iconAnchor:[20,20] });
 
@@ -267,20 +284,68 @@ function rotateArrow(angle){ const arrow=document.querySelector('.user-arrow'); 
 function clearRoute(){ if(routeLine){ map.removeLayer(routeLine); routeLine=null; } routeMeta=null; document.getElementById('routeInfo').classList.add('hidden'); }
 function highlightMarker(id){ Object.values(markers).forEach(m=>m.getElement()?.classList.remove('marker-highlight')); const el=markers[id]?.getElement(); if(el) el.classList.add('marker-highlight'); }
 
-async function updateSnapRoute(userLatLng){ if(!lastSearchId) return; const m=markers[lastSearchId]; if(!m) return; const t=m.getLatLng(); const url=`https://router.project-osrm.org/route/v1/driving/${userLatLng.lng},${userLatLng.lat};${t.lng},${t.lat}?overview=full&geometries=geojson`; try{ const r=await fetch(url); const d=await r.json(); if(!d.routes?.length) return; routeMeta = { distance: d.routes[0].distance, duration: d.routes[0].duration, target: t }; showRouteInfo(); const coords=d.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]); if(!routeLine) routeLine=L.polyline(coords,{color:'#2563eb',weight:5}).addTo(map); else routeLine.setLatLngs(coords); }catch(e){} }
+async function updateSnapRoute(userLatLng){
+  if(!lastSearchId) return;
+  const m = markers[lastSearchId];
+  if(!m) return;
+  const t = m.getLatLng();
+
+  const url = `https://router.project-osrm.org/route/v1/driving/${userLatLng.lng},${userLatLng.lat};${t.lng},${t.lat}?overview=full&geometries=geojson`;
+
+  try{
+    const r = await fetch(url);
+    const d = await r.json();
+    if(!d.routes || !d.routes.length) return;
+
+    const route = d.routes[0];
+    routeMeta = { distance: route.distance, duration: route.duration, target: t };
+    showRouteInfo();
+
+    const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+    if(!routeLine){
+      routeLine = L.polyline(coords, { color:'#2563eb', weight:5 }).addTo(map);
+    } else {
+      routeLine.setLatLngs(coords);
+    }
+  }catch(e){
+    console.warn('route error', e);
+  }
+}
 
 let firstLocate = true;
-function ensureUserMarkerVisible(){ if(userMarker && !map.hasLayer(userMarker)) userMarker.addTo(map); }
-if(navigator.geolocation){ navigator.geolocation.watchPosition(p=>{ const ll=L.latLng(p.coords.latitude,p.coords.longitude); if(!userMarker) userMarker=L.marker(ll,{icon:userIcon}).addTo(map); else userMarker.setLatLng(ll); if(lastPos) rotateArrow(bearing(lastPos,ll)); lastPos=ll; updateSnapRoute(ll); ensureUserMarkerVisible(); if(firstLocate){ map.flyTo(ll,18); firstLocate=false; } },null,{enableHighAccuracy:true,maximumAge:1000}); }
+if(navigator.geolocation){
+  navigator.geolocation.watchPosition(p=>{
+    const ll=L.latLng(p.coords.latitude,p.coords.longitude);
+    if(!userMarker) userMarker=L.marker(ll,{icon:userIcon}).addTo(map);
+    else userMarker.setLatLng(ll);
+    if(lastPos) rotateArrow(bearing(lastPos,ll));
+    lastPos=ll;
+    updateSnapRoute(ll);
+    if(firstLocate){ map.flyTo(ll,18); firstLocate=false; }
+  },null,{enableHighAccuracy:true,maximumAge:1000});
+}
 
-function showRouteInfo(){ if(!routeMeta) return; const box=document.getElementById('routeInfo'); const km=(routeMeta.distance/1000).toFixed(2); const min=Math.round(routeMeta.duration/60); box.innerHTML=`🚗 <b>${km} km</b> • ⏱ ${min} phút<button id=\"btnNav\">Bắt đầu dẫn đường</button><button id=\"btnCancelNav\" style=\"margin-top:6px;background:#e5e7eb;color:#000;\">Hủy dẫn đường</button>`; box.classList.remove('hidden'); document.getElementById('btnNav').onclick=()=>{ const u=userMarker.getLatLng(); const t=routeMeta.target; window.open(`https://www.google.com/maps/dir/?api=1&origin=${u.lat},${u.lng}&destination=${t.lat},${t.lng}&travelmode=driving`,'_blank'); }; document.getElementById('btnCancelNav').onclick=()=>{ clearRoute(); lastSearchId=null; }; }
+function showRouteInfo(){
+  if(!routeMeta) return;
+  const box=document.getElementById('routeInfo');
+  const km=(routeMeta.distance/1000).toFixed(2);
+  const min=Math.round(routeMeta.duration/60);
+  box.innerHTML=`🚗 <b>${km} km</b> • ⏱ ${min} phút
+    <button id="btnNav">Bắt đầu dẫn đường</button>
+    <button id="btnCancelNav" style="margin-top:6px;background:#e5e7eb;color:#000;">Hủy dẫn đường</button>`;
+  box.classList.remove('hidden');
+
+  document.getElementById('btnNav').onclick=()=>{
+    const u=userMarker.getLatLng();
+    const t=routeMeta.target;
+    window.open(`https://www.google.com/maps/dir/?api=1&origin=${u.lat},${u.lng}&destination=${t.lat},${t.lng}&travelmode=driving`,'_blank');
+  };
+  document.getElementById('btnCancelNav').onclick=()=>{ clearRoute(); lastSearchId=null; };
+}
 
 btnLocate.onclick = () => navigator.geolocation?.getCurrentPosition(p=>map.flyTo([p.coords.latitude,p.coords.longitude],18));
 
-console.assert(map,'map ok');
-console.assert(db.locations,'db ok');
-
-/******** RESTORE MARKERS ON LOAD (FIX RELOAD / GITHUB BUG) ********/
+/******** RESTORE MARKERS ON LOAD ********/
 (async function restoreOnLoad(){
   const items = await db.locations.where('deleted').equals(0).toArray();
   items.forEach(it=>{
